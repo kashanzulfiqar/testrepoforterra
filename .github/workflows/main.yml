@@ -91,8 +91,8 @@ jobs:
 
             cd $HOME/app
             git fetch --all
-            git checkout master
-            git pull origin master
+            git checkout main
+            git pull origin main
 
             sudo docker compose up -d --build
 
@@ -177,7 +177,7 @@ jobs:
 
             cd $HOME/app
             git fetch --all
-            git checkout master
-            git pull origin master
+            git checkout main
+            git pull origin main
 
             sudo docker compose up -d --build
