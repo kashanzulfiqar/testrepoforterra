@@ -1,0 +1,183 @@
+name: Continuous Delivery Pipeline
+
+on: 
+  push:
+    branches: [ master ] # Triggers whenever code is merged to main
+
+jobs: 
+  # ==========================================
+  # STAGE 1: DEPLOY TO STAGING
+  # ==========================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # --- 1. Apply Staging Infrastructure ---
+      - name: Terraform Apply (Staging)
+        run: |
+          cd infra/environments/staging
+          terraform init
+          terraform apply -auto-approve
+          
+          # Extract Outputs
+          EC2_IP=$(terraform output -raw staging_ec2_ip)
+          CF_ID=$(terraform output -raw staging_cloudfront_id)
+          SITE_URL=$(terraform output -raw staging_site_url)
+          
+          echo "STAGING_EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          echo "STAGING_CF_ID=$CF_ID" >> $GITHUB_ENV
+
+          # Display URL in Pipeline Logs & Summary Dashboard
+          echo "=================================================="
+          echo "🚀 STAGING URL: $SITE_URL"
+          echo "=================================================="
+          echo "### 🌐 Staging Deployment Live!" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** [$SITE_URL]($SITE_URL)" >> $GITHUB_STEP_SUMMARY
+
+      # --- 2. Build & Deploy Staging Frontend (S3 + CloudFront Invalidation) ---
+      - name: Build & Deploy Frontend to Staging S3
+        run: |
+          cd frontend
+          npm install
+          npm run build
+          aws s3 sync dist/ s3://kashan-my-app-frontend-staging --delete
+          
+          # Force CloudFront Cache Invalidation
+          aws cloudfront create-invalidation --distribution-id ${{ env.STAGING_CF_ID }} --paths "/*"
+
+      # --- 3. Deploy Staging Backend (EC2) ---
+      - name: Deploy Backend to Staging EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ env.STAGING_EC2_IP }}
+          username: ubuntu
+          key: ${{ secrets.KEYFOREC2 }}
+          script: |
+            set -e
+            echo "🚀 Deploying Backend to Staging EC2..."
+            
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              sudo apt-get update
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo mkdir -p /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker ubuntu
+            fi
+            # Ensure Loki Docker Plugin is installed host-wide
+            if ! sudo docker plugin ls | grep -q loki; then
+              echo "Installing Loki Docker Plugin..."
+              sudo docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+            fi
+            if [ ! -d "$HOME/app" ]; then
+              git clone https://github.com/${{ github.repository }}.git $HOME/app
+            fi
+
+            cd $HOME/app
+            git fetch --all
+            git checkout master
+            git pull origin master
+
+            sudo docker compose up -d --build
+
+  # ==========================================
+  # STAGE 2: MANUAL APPROVAL & DEPLOY TO PROD
+  # ==========================================
+  deploy-production:
+    name: Deploy to Production
+    needs: deploy-staging           # <--- Ensures Staging MUST finish first
+    runs-on: ubuntu-latest          # <--- Changed from self-hosted to standard runner
+    environment: production         # <--- TRIGGERS MANUAL APPROVAL GATE IN GITHUB!
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # --- 1. Apply Production Infrastructure ---
+      - name: Terraform Apply (Production)
+        run: |
+          cd infra/environments/prod
+          terraform init
+          terraform apply -auto-approve
+          
+          # Extract Outputs
+          EC2_IP=$(terraform output -raw prod_ec2_ip)
+          CF_ID=$(terraform output -raw prod_cloudfront_id)
+          PROD_URL=$(terraform output -raw prod_site_url)
+          
+          echo "PROD_EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          echo "PROD_CF_ID=$CF_ID" >> $GITHUB_ENV
+
+          # Display URL in Pipeline Logs & Summary Dashboard
+          echo "=================================================="
+          echo "🚀 PRODUCTION URL: $PROD_URL"
+          echo "=================================================="
+          echo "### 🟢 Production Deployment Live!" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** [$PROD_URL]($PROD_URL)" >> $GITHUB_STEP_SUMMARY
+
+      # --- 2. Build & Deploy Prod Frontend (S3 + CloudFront) ---
+      - name: Build & Deploy Frontend to Prod S3
+        run: |
+          cd frontend
+          npm install
+          npm run build
+          aws s3 sync dist/ s3://kashan-my-app-frontend-prod --delete
+          aws cloudfront create-invalidation --distribution-id ${{ env.PROD_CF_ID }} --paths "/*"
+
+      # --- 3. Deploy Prod Backend (EC2) ---
+      - name: Deploy Backend to Prod EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ env.PROD_EC2_IP }}
+          username: ubuntu
+          key: ${{ secrets.KEYFOREC2 }}
+          script: |
+            set -e
+            echo "🚀 Deploying Backend to Production EC2..."
+            
+            if ! command -v docker &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo mkdir -p /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker ubuntu
+            fi
+
+            if [ ! -d "$HOME/app" ]; then
+              git clone https://github.com/${{ github.repository }}.git $HOME/app
+            fi
+
+            cd $HOME/app
+            git fetch --all
+            git checkout master
+            git pull origin master
+
+            sudo docker compose up -d --build
