@@ -1,0 +1,75 @@
+name: "Direct Destroy via S3 State"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Select the environment to destroy"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  # ==========================================
+  # STAGE 1: DESTROY STAGING INFRASTRUCTURE
+  # ==========================================
+  destroy-staging:
+    name: Destroy Staging Infrastructure
+    if: ${{ inputs.target_environment == 'staging' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: "us-east-1"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Destroy Staging
+        run: |
+          cd infra/environments/staging
+          terraform init
+          terraform destroy -auto-approve
+
+  # ==========================================
+  # STAGE 2: DESTROY PRODUCTION INFRASTRUCTURE
+  # ==========================================
+  destroy-production:
+    name: Destroy Production Infrastructure
+    if: ${{ inputs.target_environment == 'production' }}
+    runs-on: ubuntu-latest
+    environment: production # Requires approval in GitHub UI
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: "us-east-1"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Destroy Production
+        run: |
+          cd infra/environments/prod
+          terraform init
+          terraform destroy -auto-approve
