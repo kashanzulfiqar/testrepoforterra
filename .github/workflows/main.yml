@@ -48,20 +48,39 @@ jobs:
           key: ${{ secrets.KEYFOREC2 }}
           script: |
             set -e
+
+            # 1. Ensure project directory exists and navigate into it
             if [ ! -d "$HOME/app" ]; then
               git clone https://github.com/${{ github.repository }}.git $HOME/app
             fi
             cd $HOME/app
-            git fetch --all && git checkout main && git pull origin main
+
+            # 2. Sync codebase
+            git fetch --all
+            git checkout main
+            git pull origin main
+
+            # 3. Create .env file explicitly
+            echo "📝 Writing environment file..."
+            cat << 'EOF' > .env
+DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+IMAGE_TAG=sha-${{ github.sha }}
+SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin
+EOF
+
+            # 4. Verify .env file keys (Debugging step)
+            echo "🔍 Verifying .env contents:"
+            cat .env | grep DOCKERHUB_USERNAME
+
+            # 5. Log into Docker Hub
             echo "🔑 Logging into Docker Hub..."
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-            echo "📝 Writing .env file..."
-            echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" > .env
-            echo "IMAGE_TAG=sha-${{ github.sha }}" > .env
-            echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" >> .env
-            echo "GRAFANA_ADMIN_USER=admin" >> .env
-            echo "GRAFANA_ADMIN_PASSWORD=admin" >> .env
-            sudo docker compose up -d --build
+
+            # 6. Run Docker Compose
+            echo "🚀 Launching containers..."
+            sudo --preserve-env=DOCKERHUB_USERNAME,IMAGE_TAG docker compose up -d --build
 
   # ==========================================
   # STAGE 2: MANUAL APPROVAL & DEPLOY TO PROD
