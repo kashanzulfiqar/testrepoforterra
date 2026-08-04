@@ -65,7 +65,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     needs: deploy-staging          # Waits for Staging to complete first
-    onment: prod        # Pauses pipeline here for approval
+    environment: prod        # Pauses pipeline here for approval
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
