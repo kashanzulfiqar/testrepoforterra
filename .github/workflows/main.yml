@@ -64,8 +64,8 @@ jobs:
   # ==========================================
   deploy-production:
     name: Deploy to Production
-    needs: deploy-staging          # 1. Waits for Staging to complete first
-    environment: production        # 2. PAUSES pipeline here until you click "Approve"
+    needs: deploy-staging          # Waits for Staging to complete first
+    environment: production        # Pauses pipeline here for approval
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
