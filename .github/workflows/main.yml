@@ -27,7 +27,7 @@ jobs:
 
       - name: Terraform Apply (Staging)
         run: |
-          cd infra/onments/staging
+          cd infra/environments/staging
           terraform init
           terraform apply -auto-approve
           echo "STAGING_EC2_IP=$(terraform output -raw staging_ec2_ip)" >> $GITHUB_ENV
