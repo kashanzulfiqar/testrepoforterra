@@ -5,10 +5,7 @@ services:
   # 1. BACKEND APPLICATION
   # ==========================================
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: nodebackendimg:latest
+    image: ${DOCKERHUB_USERNAME}/my-backend:${IMAGE_TAG:-latest}
     container_name: backend
     restart: always
     ports:
@@ -17,13 +14,6 @@ services:
       - PORT=5000
     networks:
       - app-net
-    logging:
-      driver: "loki"
-      options:
-        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
-        loki-batch-size: "400"
-        mode: "non-blocking"
-        max-buffer-size: "4m"
 
   # ==========================================
   # 2. DOCKER STATS EXPORTER
@@ -69,8 +59,6 @@ services:
     configs:
       - source: prometheus_config
         target: /etc/prometheus/prometheus.yml
-    volumes:
-      - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -90,7 +78,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     configs:
       - source: grafana_datasource
         target: /etc/grafana/provisioning/datasources/prometheus.yaml
@@ -110,8 +98,9 @@ services:
     container_name: loki
     ports:
       - "3100:3100"
-    volumes:
-      - ./loki-config.yaml:/etc/loki/local-config.yaml
+    configs:
+      - source: loki_config
+        target: /etc/loki/local-config.yaml
     command: -config.file=/etc/loki/local-config.yaml
     restart: always
     networks:
@@ -132,7 +121,7 @@ volumes:
   grafana_data:
 
 # ==========================================
-# INLINE CONFIGURATIONS
+# INLINE CONFIGURATIONS DEFINITION
 # ==========================================
 configs:
   prometheus_config:
@@ -168,3 +157,28 @@ configs:
           url: http://loki:3100
           isDefault: false
           editable: false
+
+  loki_config:
+    content: |
+      auth_enabled: false
+      server:
+        http_listen_port: 3100
+      common:
+        path_prefix: /tmp/loki
+        storage:
+          filesystem:
+            chunks_directory: /tmp/loki/chunks
+            rules_directory: /tmp/loki/rules
+        replication_factor: 1
+        ring:
+          kvstore:
+            store: inmemory
+      schema_config:
+        configs:
+          - from: 2020-05-15
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
