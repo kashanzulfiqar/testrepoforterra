@@ -53,6 +53,10 @@ jobs:
             fi
             cd $HOME/app
             git fetch --all && git checkout main && git pull origin main
+            echo "🔑 Logging into Docker Hub..."
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+            echo "📝 Writing .env file..."
+            echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" > .env
             echo "IMAGE_TAG=sha-${{ github.sha }}" > .env
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" >> .env
             echo "GRAFANA_ADMIN_USER=admin" >> .env
