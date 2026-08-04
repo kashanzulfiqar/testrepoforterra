@@ -27,7 +27,7 @@ jobs:
 
       - name: Terraform Apply (Staging)
         run: |
-          cd infra/environments/staging
+          cd infra/onments/staging
           terraform init
           terraform apply -auto-approve
           echo "STAGING_EC2_IP=$(terraform output -raw staging_ec2_ip)" >> $GITHUB_ENV
@@ -65,7 +65,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     needs: deploy-staging          # Waits for Staging to complete first
-    environment: prod        # Pauses pipeline here for approval
+    onment: prod        # Pauses pipeline here for approval
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -83,7 +83,7 @@ jobs:
 
       - name: Terraform Apply (Production)
         run: |
-          cd infra/environments/prod
+          cd infra/onments/prod
           terraform init
           terraform apply -auto-approve
           echo "PROD_EC2_IP=$(terraform output -raw prod_ec2_ip)" >> $GITHUB_ENV
